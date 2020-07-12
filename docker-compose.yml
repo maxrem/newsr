@@ -1,0 +1,38 @@
+version: "2.4"
+
+services:
+  mysql:
+    image: mariadb:10.5
+    environment:
+      MYSQL_ROOT_PASSWORD: passwd
+      MYSQL_DATABASE: newsr
+      MYSQL_USER: newsr_user
+      MYSQL_PASSWORD: passwd
+    volumes:
+      - mysql:/var/lib/mysql:delegated
+    networks:
+      - default
+
+  phpmyadmin:
+    image: phpmyadmin/phpmyadmin:5.0.2
+    environment:
+      PMA_ARBITRARY: 1
+    restart: always
+    volumes:
+      - /sessions
+    labels:
+      - traefik.http.routers.newsr-phpmyadmin.rule=Host(`newsr-phpmyadmin.localhost`)
+      - traefik.docker.network=traefik_web
+      - traefik.enable=true
+    networks:
+      - web
+      - default
+
+volumes:
+  mysql:
+    driver: local
+
+networks:
+  web:
+    external:
+      name: traefik_web

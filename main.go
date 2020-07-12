@@ -51,7 +51,6 @@ func main() {
 		"Adamis Pharmaceuticals Corporation",
 		"Adaptimmune Therapeutics plc",
 		"Adaptive Biotechnologies",
-		"Adaptive Biotechnologies",
 		"Adial Pharmaceuticals",
 		"ADMA Biologics Inc",
 	}
