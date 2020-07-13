@@ -1,7 +1,7 @@
 version: "2.4"
 
 services:
-  mysql:
+  db:
     image: mariadb:10.5
     environment:
       MYSQL_ROOT_PASSWORD: passwd
@@ -10,6 +10,8 @@ services:
       MYSQL_PASSWORD: passwd
     volumes:
       - mysql:/var/lib/mysql:delegated
+    ports:
+    - 13306:3306
     networks:
       - default
 
@@ -26,6 +28,13 @@ services:
       - traefik.enable=true
     networks:
       - web
+      - default
+
+  migrate:
+    image: migrate/migrate:v4.11.0
+    volumes:
+    - ./migrations:/migrations
+    networks:
       - default
 
 volumes:

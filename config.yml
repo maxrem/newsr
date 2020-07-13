@@ -1,0 +1,4 @@
+mysql:
+  username: newsr_user
+  password: passwd
+  db_name: newsr

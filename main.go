@@ -1,8 +1,11 @@
 package main
 
 import (
+	"database/sql"
 	"fmt"
+	_ "github.com/go-sql-driver/mysql"
 	"github.com/mmcdole/gofeed"
+	"github.com/spf13/viper"
 	"hash/fnv"
 	"log"
 	"net/url"
@@ -10,13 +13,14 @@ import (
 	"time"
 )
 
-type ParseResult struct {
-	title       string
-	url         string
-	hash        uint64
-	description string
-	content     string
-	published   time.Time
+type Article struct {
+	Id          int64
+	Title       string
+	Url         string
+	Hash        uint64
+	Description string
+	Content     string
+	Published   time.Time
 }
 
 const googleNewsUrl = "https://news.google.com/news?hl=en-US&ceid=US:en&sort=date&gl=US&num=10&output=rss&q="
@@ -24,13 +28,32 @@ const dateTimeLayout = "Mon, 02 Jan 2006 15:04:05 MST"
 const keyWord = "covid"
 const workerCount = 4
 
-// TODO
-
 func main() {
 	var wg sync.WaitGroup
 
 	urlChannel := make(chan string)
-	resultChannel := make(chan ParseResult)
+	resultChannel := make(chan Article)
+
+	viper.SetConfigName("config")
+	viper.SetConfigType("yaml")
+	viper.AddConfigPath(".")
+	err := viper.ReadInConfig()
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	dbConn, err := sql.Open(
+		"mysql",
+		fmt.Sprintf(
+			"%s:%s@tcp(localhost:13306)/%s",
+			viper.GetString("mysql.username"),
+			viper.GetString("mysql.password"),
+			viper.GetString("mysql.db_name"),
+		))
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer dbConn.Close()
 
 	subjectList := []string{
 		"10x Genomics",
@@ -79,11 +102,22 @@ func main() {
 	}()
 
 	for res := range resultChannel {
-		fmt.Println(res)
+		_, err := dbConn.Query(
+			"INSERT INTO `article` (`title`, `url`, `hash`, `description`, `content`, `published`) VALUES (?, ?, ?, ?, ?, ?)",
+			res.Title,
+			res.Url,
+			res.Hash,
+			res.Description,
+			res.Content,
+			res.Published,
+		)
+		if err != nil {
+			log.Println(err)
+		}
 	}
 }
 
-func parseFeed(url string, resultChannel chan ParseResult) {
+func parseFeed(url string, resultChannel chan Article) {
 	log.Println("Parsing", url)
 	parser := gofeed.NewParser()
 	feed, err := parser.ParseURL(url)
@@ -105,12 +139,12 @@ func parseFeed(url string, resultChannel chan ParseResult) {
 		timeSince := time.Since(publishedTime)
 
 		if timeSince < 48*time.Hour {
-			resultChannel <- ParseResult{
-				title:       item.Title,
-				url:         item.Link,
-				hash:        hash(item.Link),
-				description: item.Description,
-				published:   publishedTime,
+			resultChannel <- Article{
+				Title:       item.Title,
+				Url:         item.Link,
+				Hash:        hash(item.Link),
+				Description: item.Description,
+				Published:   publishedTime,
 			}
 		}
 	}
