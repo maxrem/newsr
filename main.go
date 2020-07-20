@@ -3,14 +3,15 @@ package main
 import (
 	"database/sql"
 	"fmt"
-	_ "github.com/go-sql-driver/mysql"
-	"github.com/mmcdole/gofeed"
-	"github.com/spf13/viper"
 	"hash/fnv"
 	"log"
 	"net/url"
 	"sync"
 	"time"
+
+	_ "github.com/go-sql-driver/mysql"
+	"github.com/mmcdole/gofeed"
+	"github.com/spf13/viper"
 )
 
 type Article struct {
@@ -22,11 +23,6 @@ type Article struct {
 	Content     string
 	Published   time.Time
 }
-
-const googleNewsUrl = "https://news.google.com/news?hl=en-US&ceid=US:en&sort=date&gl=US&num=10&output=rss&q="
-const dateTimeLayout = "Mon, 02 Jan 2006 15:04:05 MST"
-const keyWord = "covid"
-const workerCount = 4
 
 func main() {
 	var wg sync.WaitGroup
@@ -41,6 +37,11 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+
+	googleNewsUrl := viper.GetString("google.news-url")
+	dateTimeLayout := viper.GetString("google.date-time-layout")
+	keyWord := viper.GetString("google.keyword")
+	workerCount := viper.GetInt("worker-count")
 
 	dbConn, err := sql.Open(
 		"mysql",
@@ -91,7 +92,7 @@ func main() {
 		go func() {
 			defer wg.Done()
 			for u := range urlChannel {
-				parseFeed(u, resultChannel)
+				parseFeed(u, resultChannel, dateTimeLayout)
 			}
 		}()
 	}
@@ -101,9 +102,10 @@ func main() {
 		close(resultChannel)
 	}()
 
+	insertCount := 0
 	for res := range resultChannel {
-		_, err := dbConn.Query(
-			"INSERT INTO `article` (`title`, `url`, `hash`, `description`, `content`, `published`) VALUES (?, ?, ?, ?, ?, ?)",
+		result, err := dbConn.Exec(
+			"INSERT IGNORE INTO `article` (`title`, `url`, `hash`, `description`, `content`, `published`) VALUES (?, ?, ?, ?, ?, ?)",
 			res.Title,
 			res.Url,
 			res.Hash,
@@ -113,12 +115,19 @@ func main() {
 		)
 		if err != nil {
 			log.Println(err)
+		} else {
+			id, err := result.LastInsertId()
+			if err == nil && id > 0 {
+				insertCount++
+			}
 		}
 	}
+
+	log.Println("inserted", insertCount, "into database")
 }
 
-func parseFeed(url string, resultChannel chan Article) {
-	log.Println("Parsing", url)
+func parseFeed(url string, resultChannel chan Article, dateTimeLayout string) {
+	log.Println("parsing", url)
 	parser := gofeed.NewParser()
 	feed, err := parser.ParseURL(url)
 
@@ -127,6 +136,7 @@ func parseFeed(url string, resultChannel chan Article) {
 		return
 	}
 
+	articleCount := 0
 	for i := 0; i < feed.Len(); i++ {
 		item := feed.Items[i]
 
@@ -139,6 +149,7 @@ func parseFeed(url string, resultChannel chan Article) {
 		timeSince := time.Since(publishedTime)
 
 		if timeSince < 48*time.Hour {
+			articleCount++
 			resultChannel <- Article{
 				Title:       item.Title,
 				Url:         item.Link,
@@ -149,7 +160,7 @@ func parseFeed(url string, resultChannel chan Article) {
 		}
 	}
 
-	log.Println("Parsing done")
+	log.Println("parsing done. found", articleCount, "new articles")
 }
 
 func hash(s string) uint64 {
